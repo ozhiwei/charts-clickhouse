@@ -1,0 +1,148 @@
+# This file is part of the ClickHouse Helm Chart
+#    https://gitlab.com/MatthiasLohr/clickhouse-helm-chart
+#
+# Copyright 2020 Matthias Lohr <mail@mlohr.com>
+#                Dorian Cantzen <dorian@extrument.com>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse
+  labels:
+    {{- include "defaultLabels" $ | nindent 4 }}
+spec:
+  replicas: {{ .Values.clickhouse.replicas }}
+  serviceName: {{ include "defaultObjectName" . }}-headless
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      {{- include "defaultMatchLabels" $ | nindent 6 }}
+      clickhouse/component: clickhouse
+  template:
+    metadata:
+      labels:
+        {{- include "defaultLabels" $ | nindent 8 }}
+        clickhouse/component: clickhouse
+      annotations:
+        clickhouse/config-checksum: {{ include (print $.Template.BasePath "/configuration.yaml") $ | sha256sum }}
+    spec:
+      containers:
+        - name: clickhouse
+          image: {{ $.Values.clickhouse.image }}
+          imagePullPolicy: {{ $.Values.clickhouse.imagePullPolicy }}
+          #command: ['tail', '-f']
+          ports:
+            - containerPort: {{ $.Values.clickhouse.ports.native }}
+            - containerPort: {{ $.Values.clickhouse.ports.http }}
+          env:
+            - name: CLICKHOUSE_REPLICA_NUMBER
+              value: {{ .Values.clickhouse.replicas | quote }}
+          volumeMounts:
+            - name: common-configuration
+              subPath: config.xml
+              mountPath: /etc/clickhouse-server/config.xml
+            - name: data
+              mountPath: /var/lib/clickhouse
+            - mountPath: /etc/clickhouse-server/config.d
+              name: config
+
+      initContainers:                           
+        - command:
+            - /usr/bin/init.sh
+          env:
+            - name: CLICKHOUSE_REPLICA_NUMBER
+              value: {{ .Values.clickhouse.replicas | quote }}
+          image: debian:latest
+          imagePullPolicy: IfNotPresent
+          name: clickhouse-config-init
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1Gi
+            requests:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/clickhouse-server/config.d
+            name: config
+          - mountPath: /usr/bin/init.sh
+            name: clickhouse-script
+            subPath: init.sh
+          - mountPath: /usr/bin/printf_metrika
+            name: clickhouse-script
+            subPath: printf_metrika.sh
+
+      volumes:
+        - emptyDir: {}
+          name: config      
+        - name: common-configuration
+          configMap:
+            name: {{ include "defaultObjectName" $ }}-configuration
+        - name: clickhouse-script
+          configMap:
+            name: {{ include "defaultObjectName" $ }}-script
+            defaultMode: 0777
+
+        {{- if .Values.clickhouse.storageType }}{{- if eq .Values.clickhouse.storageType "local" }}
+        - hostPath:
+          path: {{ .Values.clickhouse.path }}
+          type: DirectoryOrCreate
+          name: data
+        {{- end }}{{ end }}
+
+        {{- if .Values.clickhouse.storageType }}{{- if eq .Values.clickhouse.storageType "existingPersistentVolumeClaim" }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.clickhouse.existingPersistentVolumeClaimName }}
+        {{- end }}{{ end }}
+            
+      securityContext:
+        runAsUser: 0
+        fsGroup: 0
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  {{- include "defaultMatchLabels" $ | nindent 18 }}
+                  clickhouse/component: clickhouse
+              topologyKey: kubernetes.io/hostname
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    {{- include "defaultMatchLabels" $ | nindent 20 }}
+                    clickhouse/component: clickhouse
+                topologyKey: kubernetes.io/hostname
+              weight: 5
+  {{- if .Values.clickhouse.storageType }}{{- if eq .Values.clickhouse.storageType "persistentVolumeClaim" }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          {{- range $index, $accessMode := .Values.clickhouse.persistentVolumeClaim.accessModes }}
+          - {{ $accessMode }}
+          {{ end }}
+        resources:
+          requests:
+            storage: {{ .Values.clickhouse.persistentVolumeClaim.resources.requests.storage }}
+        storageClassName: {{ .Values.clickhouse.persistentVolumeClaim.storageClassName }}
+        volumeMode: Filesystem
+  {{- end }}{{ end }}

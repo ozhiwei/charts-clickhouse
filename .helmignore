@@ -1,0 +1,4 @@
+/.git
+/values.*.yaml
+*.tgz
+.gitlab-ci.yml

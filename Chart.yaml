@@ -1,0 +1,16 @@
+apiVersion: v2
+appVersion: "20.1"
+description: Helm Chart for deploying StatefulSet ClickHouse cluster
+home: https://github.com/ozhiwei/charts-clickhouse
+icon: https://clickhouse.yandex/images/logo.png
+keywords:
+- clickhouse
+maintainers:
+- email: uhe1231@gmail.com
+  name: ZhiWEI.Yuan
+  url: https://zhiwei.show
+name: clickhouse
+sources:
+- https://github.com/ozhiwei/charts-clickhouse
+type: application
+version: 1.0.0
